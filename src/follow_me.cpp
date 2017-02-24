@@ -18,12 +18,32 @@
 static tf::Vector3 transformVector;
 float tracking_distance = 0.6;
 float Kp, Ki;
-float error_v, error_w;
+float error_v=0, error_w=0, error_v_sum=0, error_w_sum=0;
+float odom_v=0, odom_w=0;
+float pre_v=0, pre_w=0;
+float target_v=0, target_w=0;
+float delta_v=0, delta_w=0;
+float cmd_v=0, cmd_w=0;
+
+float min_dist=35.0;
+float keep_range_in=40.0,keep_range_out=60.0;
+float track_dist=min_dist+keep_range_in;
+float max_dist=min_dist+keep_range_in+keep_range_out;
+float max_dist_side=max_dist*0.7;
+float limit_dist=150;
+float target_d,target_d_pre;
+float target_th=0,target_th_pre=0;
+float error_d=0,error_th=0;
+
+void OdomCallBack(const nav_msgs::Odometry& msg){
+  odom_v=msg.twist.twist.linear.x;
+  odom_w=msg.twist.twist.angular.z;
+  ROS_INFO("odom_v %f odom_w %f",odom_v,odom_w);
+}
 
 // Detection and tracking
-void peopleTrackedCallback(const leg_tracker::PersonArray::ConstPtr& personArray){
+void peopleTrackedCallBack(const leg_tracker::PersonArray::ConstPtr& personArray){
   int human_detected_number = personArray->people.size();
-
   if (human_detected_number != 0) {
     ROS_INFO("human_detected_number: %d", human_detected_number);
     for (int i = 0; i < human_detected_number; i++){
@@ -38,7 +58,7 @@ void peopleTrackedCallback(const leg_tracker::PersonArray::ConstPtr& personArray
         ROS_INFO("Detected");
       }else{
         ROS_INFO("Not Detected");
-      }
+        }
     }
   }
 }
@@ -51,31 +71,12 @@ void pi_controller(){
 int main(int argc, char **argv){
   ros::init(argc, argv, "follow_me_node");
   ros::NodeHandle n;
-  ros::Subscriber human_tracked_sub_, from_android_sub_;
+  ros::Subscriber human_tracked_sub_, from_android_sub_, odom_sub_;
   ros::Publisher robot_status_pub_;
-  /*
-  tf::TransformListener listener;
-  tf::StampedTransform transform;
   
-  try {
-    listener.waitForTransform("rugby_rplidar", "rugby_base", ros::Time(), ros::Duration(3.0));
-      listener.lookupTransform("rugby_rplidar", "rugby_base", ros::Time(), transform);
-      transformVector = transform.getOrigin();
-      float x = transformVector.getX();
-      float y = transformVector.getY();
-      double yaw, pitch, roll;
-      transform.getBasis().getRPY(roll, pitch, yaw);
-      ROS_INFO("x: %f, y: %f",x , y);
-      ROS_INFO("roll: %f, pitch: %f, yaw: %f", roll, pitch, yaw);
-  }
-  catch (tf::TransformException &ex) {
-    ROS_ERROR("%s",ex.what());
-    ros::Duration(1.0).sleep();
-    return 0;
-  }
-  */
-  human_tracked_sub_ = n.subscribe("people_tracked", 100, peopleTrackedCallback);
-  from_android_sub_  = n.subscribe("follow_me", 100, peopleTrackedCallback);
+  human_tracked_sub_ = n.subscribe("/people_tracked", 100, peopleTrackedCallBack);
+  from_android_sub_  = n.subscribe("/follow_me", 100, peopleTrackedCallBack);
+  odom_sub_          = n.subscribe("/rugby/odom", 100, OdomCallBack);
   robot_status_pub_  = n.advertise<lidar_follow_me::RobotStatus>("follow_me_status", 10);
   ros::spin();
   return 0;
