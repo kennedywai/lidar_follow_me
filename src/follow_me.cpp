@@ -13,9 +13,7 @@
 #include "leg_tracker/Person.h"
 #include "leg_tracker/PersonArray.h"
 
-static float RANGE = 0.5 * 0.5;
-static float CENTER_X = 1.45;
-static float CENTER_Y = 0;
+float tracking_distance = 0.5;
 
 void publishTopic() {
   ros::NodeHandle n;
@@ -36,10 +34,12 @@ void peopleTrackedCallback(const leg_tracker::PersonArray::ConstPtr& personArray
       float human_x = personArray->people[i].pose.position.x;
       float human_y = personArray->people[i].pose.position.y;
       int human_id = personArray->people[i].id;
-      ROS_INFO("x : %.2f, y : %.2f, id : %d", human_x, human_y, human_id);
+      //ROS_INFO("x : %.2f, y : %.2f, id : %d", human_x, human_y, human_id);
       //float distance = pow((x - CENTER_X), 2) + pow((y - CENTER_Y), 2);
-      float distance = pow(human_x, 2) + pow(human_y, 2);
-      if (distance <= RANGE) {
+      float distance = sqrt(pow(human_x, 2) + pow(human_y, 2));
+      ROS_INFO("x : %.2f, y : %.2f, id : %d distance : %.2f", human_x, human_y, human_id, distance);
+
+      if (distance <= tracking_distance) {
         ROS_INFO("Detected");
         publishTopic();
       } else {
