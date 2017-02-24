@@ -19,10 +19,10 @@ static float CENTER_Y = 0;
 
 void publishTopic() {
   ros::NodeHandle n;
-  ros::Publisher detection_pub = n.advertise<std_msgs::String>("follow_me", 100);
+  ros::Publisher detection_pub = n.advertise<std_msgs::String>("follow_me_status", 100);
   if (ros::ok()) {
     std_msgs::String msg;
-    msg.data = "Find";
+    msg.data = "DETECTED";
     detection_pub.publish(msg);
   }
 }
@@ -41,7 +41,7 @@ void peopleTrackedCallback(const leg_tracker::PersonArray::ConstPtr& personArray
       float distance = pow(human_x, 2) + pow(human_y, 2);
       if (distance <= RANGE) {
         ROS_INFO("Detected");
-        // publishTopic();
+        publishTopic();
       } else {
         ROS_INFO("Not Detected");
       }
