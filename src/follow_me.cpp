@@ -17,10 +17,10 @@
 
 #define Kp_linear  0.4
 #define Ki_linear  0.02
-#define Kp_angular 1.0
+#define Kp_angular 1.3
 #define Ki_angular 0
-#define MAX_SPEED_LINEAR  0.25
-#define MAX_SPEED_ANGULAR  0.65
+#define MAX_SPEED_LINEAR  0.35
+#define MAX_SPEED_ANGULAR  0.75
 
 static tf::Vector3 transformVector;;
 ros::Subscriber human_tracked_sub_, from_android_sub_, odom_sub_;
@@ -37,13 +37,13 @@ float odom_v = 0, odom_w = 0;
 float robot_human_distance, target_d_pre;
 float robot_theta = 0;
 
-void Tracking(int human_id_tracking){
+void Tracking(){
   // PI Controller for linear velocity and P Controller for angular velocity
   // Getting the distance between the robot and the human
   geometry_msgs::Twist command_robot;
   robot_human_distance = sqrt(pow(human_x, 2) + pow(human_y, 2));
   robot_theta = atan2(human_y,human_x);
-  
+
   ROS_INFO("robot_theta : %.2f", robot_theta);
   ROS_INFO("human_x : %.2f, human_y : %.2f", human_x, human_y);
   ROS_INFO("human_w : %.2f human_theta : %.2f ", human_w, 2*acos(human_w));
@@ -54,16 +54,12 @@ void Tracking(int human_id_tracking){
   //output_linear_v = Kp_linear * (error_distance) + Ki_linear * (error_distance_i);
   output_linear_v = Kp_linear * (error_distance);
   output_angular_v = Kp_angular * (robot_theta);
-  
-  //error_linear_v =
-  //error_angular_v = output_angular_v - odom_w;
-  //error_angular_v_i = error_angular_v_i + error_angular_v; 
 
   if (output_linear_v >= MAX_SPEED_LINEAR) 
     output_linear_v = MAX_SPEED_LINEAR;
   else if (output_linear_v <= -1*MAX_SPEED_LINEAR) 
     output_linear_v = -1*MAX_SPEED_LINEAR;
-  //ROS_INFO("output_linear_v : %.2f", output_linear_v);
+  ROS_INFO("output_linear_v : %.2f", output_linear_v);
 
   if (output_angular_v >= MAX_SPEED_ANGULAR) 
     output_angular_v = MAX_SPEED_ANGULAR;
@@ -101,7 +97,7 @@ void peopleTrackedCallBack(const leg_tracker::PersonArray::ConstPtr& personArray
       human_w  = personArray->people[i].pose.orientation.w;
       human_id = personArray->people[i].id;
       detected = true;
-      Tracking(human_id);
+      Tracking();
     }
   }
   else
