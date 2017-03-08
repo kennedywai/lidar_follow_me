@@ -8,47 +8,72 @@
 #include "std_msgs/Int8.h"
 #include "sys/time.h"
 #include "iostream"
+#include "signal.h"
 #include "stdio.h"
 #include "stdlib.h"
+#include "unistd.h"
 #include "leg_tracker/Person.h"
 #include "leg_tracker/PersonArray.h"
 #include "lidar_follow_me/RobotStatus.h"
 #include "tf/transform_listener.h"
 
-#define Kp_linear  0.4
+#define Kp_linear  1.0
 #define Ki_linear  0.02
-#define Kp_angular 1.3
+#define Kp_angular 0.95
 #define Ki_angular 0
-#define MAX_SPEED_LINEAR  0.35
+#define MAX_SPEED_LINEAR  0.45
 #define MAX_SPEED_ANGULAR  0.75
 
 static tf::Vector3 transformVector;;
-ros::Subscriber human_tracked_sub_, from_android_sub_, odom_sub_;
+ros::Subscriber human_tracked_sub_, from_android_sub_, odom_sub_, follow_me_distance_sub_;
 ros::Publisher robot_status_pub_, command_robot_pub_;
-int   human_id, human_id_pre;
-bool  detected = false;
+int   human_id, human_id_pre, human_id_temp;
+bool  tracked = false, following = false;
 float human_x, human_y, human_w;
 float COS_THETA = 0, SIN_THETA = 0;
-float human_current_distance, detection_distance=1.0, tracking_distance=0.75;
+float human_current_distance, detection_distance=1.0, following_distance=0.75;
 float error_distance, error_distance_i=0;
 float output_linear_v = 0.0, output_angular_v = 0.0;
 float error_linear_v = 0, error_angular_v = 0, error_linear_v_sum = 0, error_angular_v_sum = 0;
 float odom_v = 0, odom_w = 0;
 float robot_human_distance, target_d_pre;
 float robot_theta = 0;
+volatile sig_atomic_t flag = 0;
 
-void Tracking(){
+void Stop(){
+  geometry_msgs::Twist command_robot;
+  tracked = false;
+  command_robot.linear.x  = 0.0;
+  command_robot.angular.z = 0.0;
+  command_robot_pub_.publish(command_robot);		
+}
+
+void exit_follow_me(int sig){ 
+  // can be called asynchronously
+  // flag = 1; // set flag
+  ROS_INFO("EXITING FOLLOW ME");
+  while(odom_v != 0.0 && odom_w != 0.0){
+  ROS_INFO("IM STUCK!!!");
+  Stop();
+  }
+  ros::shutdown();
+  exit(0);
+}
+
+// Change the tracking to following
+void Following(){
   // PI Controller for linear velocity and P Controller for angular velocity
   // Getting the distance between the robot and the human
   geometry_msgs::Twist command_robot;
-  robot_human_distance = sqrt(pow(human_x, 2) + pow(human_y, 2));
-  robot_theta = atan2(human_y,human_x);
+  tracked = true;
+  //robot_human_distance = sqrt(pow(human_x, 2) + pow(human_y, 2));
+  //robot_theta = atan2(human_y,human_x);
 
-  ROS_INFO("robot_theta : %.2f", robot_theta);
-  ROS_INFO("human_x : %.2f, human_y : %.2f", human_x, human_y);
-  ROS_INFO("human_w : %.2f human_theta : %.2f ", human_w, 2*acos(human_w));
+  //ROS_INFO("robot_theta : %.2f", robot_theta);
+  //ROS_INFO("human_x : %.2f, human_y : %.2f", human_x, human_y);
+  //ROS_INFO("human_w : %.2f human_theta : %.2f ", human_w, 2*acos(human_w));
   
-  error_distance = robot_human_distance - tracking_distance;
+  error_distance = robot_human_distance - following_distance;
   error_distance_i = error_distance_i + error_distance;
   
   //output_linear_v = Kp_linear * (error_distance) + Ki_linear * (error_distance_i);
@@ -59,25 +84,17 @@ void Tracking(){
     output_linear_v = MAX_SPEED_LINEAR;
   else if (output_linear_v <= -1*MAX_SPEED_LINEAR) 
     output_linear_v = -1*MAX_SPEED_LINEAR;
-  ROS_INFO("output_linear_v : %.2f", output_linear_v);
+  //ROS_INFO("output_linear_v : %.2f", output_linear_v);
 
   if (output_angular_v >= MAX_SPEED_ANGULAR) 
     output_angular_v = MAX_SPEED_ANGULAR;
   else if (output_angular_v <= -1*MAX_SPEED_ANGULAR) 
     output_angular_v = -1*MAX_SPEED_ANGULAR;
-  ROS_INFO("output_angular_v : %.2f", output_angular_v);
+  //ROS_INFO("output_angular_v : %.2f", output_angular_v);
 
   command_robot.linear.x  = output_linear_v;
   command_robot.angular.z = output_angular_v;
   command_robot_pub_.publish(command_robot);
-}
-
-void Stop(){
-  geometry_msgs::Twist command_robot;
-  detected = false;
-  command_robot.linear.x  = 0.0;
-  command_robot.angular.z = 0.0;
-  command_robot_pub_.publish(command_robot);	
 }
 
 void OdomCallBack(const nav_msgs::Odometry& msg){
@@ -89,19 +106,31 @@ void OdomCallBack(const nav_msgs::Odometry& msg){
 // Detection and tracking
 void peopleTrackedCallBack(const leg_tracker::PersonArray::ConstPtr& personArray){
   int human_detected_number = personArray->people.size();
-  if (human_detected_number != 0){
-    ROS_INFO("human_detected_number : %d", human_detected_number);
-    for (int i = 0; i < human_detected_number; i++){
-      human_x = COS_THETA * (personArray->people[i].pose.position.x) - SIN_THETA * (personArray->people[i].pose.position.y) + transformVector.getX();
-      human_y = SIN_THETA * (personArray->people[i].pose.position.x) + COS_THETA * (personArray->people[i].pose.position.y) + transformVector.getY();
+  if(human_detected_number != 0){
+    //ROS_INFO("human_detected_number : %d", human_detected_number);
+    for(int i = 0; i < human_detected_number; i++){
+      human_x = COS_THETA * (personArray->people[i].pose.position.x) - 
+                SIN_THETA * (personArray->people[i].pose.position.y) + transformVector.getX();
+      human_y = SIN_THETA * (personArray->people[i].pose.position.x) + 
+                COS_THETA * (personArray->people[i].pose.position.y) + transformVector.getY();
       human_w  = personArray->people[i].pose.orientation.w;
       human_id = personArray->people[i].id;
-      detected = true;
-      Tracking();
+      //ROS_INFO("people[%d] : %d",i, human_id);
+      robot_human_distance = sqrt(pow(human_x, 2) + pow(human_y, 2));
+      robot_theta = atan2(human_y,human_x);
+      //ROS_INFO("robot_theta : %.2f", robot_theta);
+      //ROS_INFO("human_x : %.2f, human_y : %.2f", human_x, human_y);
+      tracked = true;
+      Following();
+      /*if(robot_human_distance <= 0.80 && robot_theta >= -0.5 && robot_theta <=0.5 && !tracked && !following){
+      //Following(human_id);
+      human_id_temp = human_id;
+      following = true;
+      }*/
     }
   }
   else
-    detected = false;	
+    tracked = false;	
 }
 
 int main(int argc, char **argv){
@@ -110,41 +139,50 @@ int main(int argc, char **argv){
   tf::TransformListener listener;
   tf::StampedTransform transform;
   ros::Rate loop_rate(10);	
+  signal(SIGINT, exit_follow_me); 
 
-  command_robot_pub_ = n.advertise<geometry_msgs::Twist>("/rugby/cmd_vel", 10);
-  robot_status_pub_  = n.advertise<lidar_follow_me::RobotStatus>("/follow_me_status", 10);
-  human_tracked_sub_ = n.subscribe("/people_tracked", 100, peopleTrackedCallBack);
-  from_android_sub_  = n.subscribe("/follow_me", 100, peopleTrackedCallBack);
-  odom_sub_          = n.subscribe("/rugby/odom", 100, OdomCallBack);
+  command_robot_pub_ 	  = n.advertise<geometry_msgs::Twist>("/rugby/cmd_vel", 10);
+  robot_status_pub_  	  = n.advertise<lidar_follow_me::RobotStatus>("/follow_me_status", 10);
+  follow_me_distance_sub_ = n.subscribe("/follow_me_distance", 100, peopleTrackedCallBack);
+  human_tracked_sub_   	  = n.subscribe("/people_tracked", 100, peopleTrackedCallBack);
+  from_android_sub_       = n.subscribe("/follow_me", 100, peopleTrackedCallBack);
+  odom_sub_               = n.subscribe("/rugby/odom", 100, OdomCallBack);
+
   while(ros::ok()){
-  try {
-    listener.waitForTransform("rugby_base", "rugby_rplidar", ros::Time(), ros::Duration(3.0));
+  try{
+      listener.waitForTransform("rugby_base", "rugby_rplidar", ros::Time(), ros::Duration(3.0));
       listener.lookupTransform("rugby_base", "rugby_rplidar", ros::Time(), transform);
       transformVector = transform.getOrigin();
       float x = transformVector.getX();
       float y = transformVector.getY();
       double yaw, pitch, roll;
       transform.getBasis().getRPY(roll, pitch, yaw);
-      //ROS_INFO("x : %.2f, y : %.2f",x , y);
-      //ROS_INFO("yaw : %.2f",yaw);
       COS_THETA = cos(yaw);
       SIN_THETA = sin(yaw);
   }
-  catch (tf::TransformException &ex) {
+  catch (tf::TransformException &ex){
     ROS_ERROR("%s",ex.what());
     ros::Duration(1.0).sleep();
     return 0;
   }
 
-  //while(ros::ok()){
-  if(!detected){
-    //ROS_INFO("NOT DETECTED");  
+  if(!tracked){
+  //ROS_INFO("NOT TRACKED OR EMERGENCY STOP!!");
+  Stop();
+  }
+  /*
+  if(flag){ 
     Stop();
+    ROS_INFO("\n Rugby is exiting the follow me function!!\n");
+    ros::Duration(2.0).sleep();
+    exit(0);
+    break;
     }
+  */
   ros::spinOnce();
   loop_rate.sleep();
   }
-
   //ros::spin();
+  ROS_INFO("STOP");
   return 0;
 }

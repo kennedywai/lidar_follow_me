@@ -1,6 +1,6 @@
-uint8   status
-uint8   FAILED       = 0
-uint8   DETECTED     = 1  
-uint8   ABORTED      = 2  
-uint8   TRACKING     = 3
+int8   status
+int8   FAILED       = 0
+int8   DETECTED     = 1  
+int8   ABORTED      = 2  
+int8   TRACKING     = 3
 string  text 
