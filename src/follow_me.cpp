@@ -93,6 +93,15 @@ void Following(){
   else if (output_angular_v <= -1*MAX_SPEED_ANGULAR) 
     output_angular_v = -1*MAX_SPEED_ANGULAR;
   //ROS_INFO("output_angular_v : %.2f", output_angular_v);
+  
+  if (output_linear_v <= 0.08 && output_linear_v >= -0.08 && output_angular_v <= 0.08 && output_angular_v >= -0.08){
+  ROS_INFO("HUMAN IS NOT MOVING!");
+  robot_status_int.data = 2;
+  }
+  else{
+  ROS_INFO("HUMAN is MOVING!");
+  robot_status_int.data = 3;
+  }
 
   command_robot.linear.x  = output_linear_v;
   command_robot.angular.z = output_angular_v;
@@ -113,8 +122,8 @@ void FollowMeCallBack(const std_msgs::String::ConstPtr& msg){
 
 void timerCallback(const ros::TimerEvent& event){
   if(robot_status_int.data == 0){
-  robot_status_int.data = 0;
-  ROS_INFO("not detected within 60s");
+  //robot_status_int.data = 0;
+  //ROS_INFO("not detected within 60s");
   }
 }
 
@@ -137,7 +146,7 @@ void peopleTrackedCallBack(const leg_tracker::PersonArray::ConstPtr& personArray
       //ROS_INFO("robot_theta : %.2f", robot_theta);
       //ROS_INFO("human_x : %.2f, human_y : %.2f", human_x, human_y);
       tracked = true;
-      robot_status_int.data = 2;
+      //robot_status_int.data = 2;
       if(follow_me_string == "start"){
       Following();
       }
@@ -163,9 +172,9 @@ int main(int argc, char **argv){
   double begin, now;
   
   command_robot_pub_ = n.advertise<geometry_msgs::Twist>("/rugby/cmd_vel", 10);
-  robot_status_pub_  = n.advertise<std_msgs::Int8>("/follow_me_status", 10);
+  robot_status_pub_  = n.advertise<std_msgs::Int8>("/follow_me_status", 2);
   human_tracked_sub_ = n.subscribe("/people_tracked", 100, peopleTrackedCallBack);
-  follow_me_sub_     = n.subscribe("/follow_me", 100, FollowMeCallBack);
+  follow_me_sub_     = n.subscribe("/follow_me", 10, FollowMeCallBack);
   odom_sub_          = n.subscribe("/rugby/odom", 100, OdomCallBack);
   timer = n.createTimer(ros::Duration(60), timerCallback);
 
